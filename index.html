@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>むすぼなAIデータ受け渡しシステム</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/encoding-japanese@2.2.0/encoding.min.js"></script>
 <style>
 :root {
   --green: #2E7D32;
@@ -386,12 +387,13 @@ textarea { resize: vertical; }
 
     <div class="form-row">
       <div class="form-group ac-wrap">
-        <label>保険者番号（6桁）<span class="req">*</span></label>
-        <input type="text" id="insurerNo" maxlength="6" placeholder="例: 132126"
-          oninput="onHistInput(this,'ins'); lookupIns(this.value)"
-          onfocus="showHist('ins')" onblur="hideHist('ins')">
-        <div class="ac-list" id="ac-ins"></div>
+        <label>保険者<span class="req">*</span></label>
+        <input type="text" id="insurerName" placeholder="例: 目黒区　（名前で検索→番号自動セット）"
+          oninput="searchInsurer(this.value)"
+          onfocus="searchInsurer(this.value)" onblur="hideInsList()">
+        <div class="ac-list" id="ac-insName"></div>
         <div class="insurer-hint" id="insName"></div>
+        <input type="hidden" id="insurerNo">
         <div class="error-msg" id="e-ins"></div>
       </div>
       <div class="form-group ac-wrap" style="grid-column: span 2">
@@ -423,7 +425,31 @@ textarea { resize: vertical; }
 
 <!-- ═══════════════ STEP 2 ═══════════════ -->
 <div id="p2" style="display:none">
+
+  <!-- むすぼなAIリンクバナー -->
+  <div style="background:linear-gradient(135deg,#e8f5e9,#f1f8e9);border:1px solid #a5d6a7;border-radius:12px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:220px">
+      <a href="https://d2jmp4ahjvfvvw.cloudfront.net/use-case-builder/execute/17ad0ce4-dce4-4ab4-bebe-561c20750bb9" target="_blank" rel="noopener noreferrer"
+         style="display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:1.05rem;color:#2e7d32;text-decoration:none;border-bottom:2px solid #66bb6a;padding-bottom:2px">
+        🌿 むすぼなAIケアプラン作成 ↗
+      </a>
+      <p style="margin:6px 0 0;font-size:0.82rem;color:#555;line-height:1.5">※むすぼなAIで出力したケアプランのCSVデータ（黒い部分）の右上のバインダーマークをクリックしてコピーし、下の枠に貼り付けて取り込んでください。</p>
+    </div>
+  </div>
+
+  <!-- AI一括入力エリア -->
+  <div class="card">
+    <div class="card-title">🤖 AI出力テキスト一括取込</div>
+    <div class="hint">AIが出力したケアプラン全体（基本情報・1表・2表・3表）をまとめて貼り付けてください。<br>「居宅サービス計画書(1),」「居宅サービス計画書(2),」「週間サービス計画書」のセクションヘッダーで自動的に振り分けます。</div>
+    <div class="ai-area">
+      <span class="ai-label">📋 AIの出力テキストをここに貼り付けて「一括取込」を押してください</span>
+      <textarea id="aiTxtAll" rows="12" placeholder="基本情報,&#10;項目,内容&#10;氏名,横浜　海子&#10;...&#10;&#10;居宅サービス計画書(1),&#10;項目,内容&#10;本人の意向,...&#10;...&#10;&#10;居宅サービス計画書(2),&#10;ニーズ,長期目標,短期目標,サービス内容,社会資源,頻度&#10;...&#10;&#10;週間サービス計画書(30分単位),&#10;時間,月,火,水,木,金,土,日,主な日常生活上の活動&#10;..."></textarea>
+      <button class="ai-btn" style="font-size:1rem;padding:10px 28px" onclick="parseAIAll()">▶ 一括取込</button>
+    </div>
+  </div>
+
   <div class="card" style="padding-bottom: 0">
+    <div class="card-title">📝 取込結果の確認・編集</div>
     <div class="tabs">
       <div class="tab active" onclick="switchTab('t1',this)">📋 1表</div>
       <div class="tab" onclick="switchTab('t2',this)">🎯 2表</div>
@@ -432,11 +458,6 @@ textarea { resize: vertical; }
 
     <!-- ─── TAB 1表 ─── -->
     <div class="tab-panel active" id="t1">
-      <div class="ai-area">
-        <span class="ai-label">🤖 AIの出力テキストを貼り付けてください（1表用）<br>【本人の意向】【家族の意向】【課題分析結果】【総合的な援助の方針】のラベルで自動取込します</span>
-        <textarea id="aiTxt1" rows="5" placeholder="【本人の意向】&#10;今まで通り住み慣れた自宅で生活を続けたい。洋裁や料理などできることはやりたい。&#10;&#10;【家族の意向】&#10;物忘れがひどく一人にしておけない状況が困る。&#10;&#10;【課題分析結果】&#10;...&#10;&#10;【総合的な援助の方針】&#10;..."></textarea>
-        <button class="ai-btn" onclick="parseAI1()">▶ 自動取込</button>
-      </div>
 
       <div class="form-row">
         <div class="form-group">
@@ -530,17 +551,12 @@ textarea { resize: vertical; }
 
     <!-- ─── TAB 2表 ─── -->
     <div class="tab-panel" id="t2">
-      <div class="ai-area">
-        <span class="ai-label">🤖 AIの出力テキストを貼り付けてください（2表用）<br>「---課題1---」で区切って課題・目標・サービス内容を自動取込します</span>
-        <textarea id="aiTxt2" rows="6" placeholder="---課題1---&#10;課題: 転倒せずに自宅内を移動し生活を続けたい&#10;長期目標: つかまるところを活用しながら移動でき転倒なく1年間過ごせる&#10;短期目標: 足腰の筋力を維持し室内の段差を注意しながら移動できる&#10;サービス内容: 体調観察と転倒予防のための環境整備の助言を受ける&#10;保険対象: Y&#10;サービス種別: 訪問看護&#10;事業者コード: 1234567890&#10;事業所名: XX事業所&#10;頻度: 週1回&#10;&#10;---課題2---&#10;課題: ..."></textarea>
-        <button class="ai-btn" onclick="parseAI2()">▶ 自動取込</button>
-      </div>
-
       <div class="bulk-bar">
         <span class="bulk-label">🗓 全課題に期間を一括設定</span>
         <span style="font-size:0.8rem;color:#795548">長期:</span>
         <input type="date" id="blS" style="width:140px"> 〜
         <input type="date" id="blE" style="width:140px">
+        <button class="bulk-apply-btn" onclick="document.getElementById('bsS').value=document.getElementById('blS').value;document.getElementById('bsE').value=document.getElementById('blE').value;" style="background:#e8f5e9;color:#2e7d32;border:1.5px solid #a5d6a7;margin-left:4px">▼ 短期にコピー</button>
         <span style="font-size:0.8rem;color:#795548">短期:</span>
         <input type="date" id="bsS" style="width:140px"> 〜
         <input type="date" id="bsE" style="width:140px">
@@ -580,6 +596,17 @@ textarea { resize: vertical; }
 
 <!-- ═══════════════ STEP 3 ═══════════════ -->
 <div id="p3" style="display:none">
+
+  <!-- H2居宅取り込みリンクバナー -->
+  <div style="background:linear-gradient(135deg,#e3f2fd,#e8eaf6);border:1px solid #90caf9;border-radius:12px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+    <div style="font-size:0.85rem;color:#555">CSVを保存したら、H2居宅の取り込み画面へ →</div>
+    <a href="https://test-care-support.h2-platform.com/CarePlanImport/" target="_blank" rel="noopener noreferrer"
+       style="display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:1.05rem;color:#1565c0;text-decoration:none;background:#fff;border:2px solid #42a5f5;border-radius:8px;padding:8px 18px;transition:all .2s"
+       onmouseover="this.style.background='#e3f2fd'" onmouseout="this.style.background='#fff'">
+      📥 H2居宅 1～3表取り込み ↗
+    </a>
+  </div>
+
   <div class="card">
     <div class="card-title">✅ バリデーション結果</div>
     <ul class="val-list" id="valList"></ul>
@@ -596,14 +623,18 @@ textarea { resize: vertical; }
   </div>
 
   <div class="card">
-    <div class="card-title">⬇ CSVダウンロード</div>
+    <div class="card-title">⬇ CSV保存</div>
     <div class="dl-section">
-      <div style="font-size:0.88rem;color:#666;margin-bottom:16px">3ファイル（1表・2表・3表）をZIPでまとめてダウンロードします</div>
-      <button class="btn btn-primary" onclick="downloadZip()">📦 ZIPでダウンロード</button>
-      <div class="dl-singles">
-        <button class="btn btn-secondary btn-sm" onclick="dlSingle(1)">1表のみ</button>
-        <button class="btn btn-secondary btn-sm" onclick="dlSingle(2)">2表のみ</button>
-        <button class="btn btn-secondary btn-sm" onclick="dlSingle(3)">3表のみ</button>
+      <div style="font-size:0.88rem;color:#666;margin-bottom:16px">
+        フォルダを選択すると、3ファイル（1表・2表・3表）を直接書き込みます。<br>
+        <span style="color:var(--green);font-size:0.8rem">※ この方式ではWindowsセキュリティの警告が出ません</span>
+      </div>
+      <button class="btn btn-primary" onclick="saveToFolder()">📁 フォルダを選んで保存</button>
+      <div class="dl-singles" style="margin-top:16px">
+        <span style="font-size:0.78rem;color:#999;margin-right:8px">従来方式（警告が出る場合あり）：</span>
+        <button class="btn btn-secondary btn-sm" onclick="dlSingle(1)">1表</button>
+        <button class="btn btn-secondary btn-sm" onclick="dlSingle(2)">2表</button>
+        <button class="btn btn-secondary btn-sm" onclick="dlSingle(3)">3表</button>
       </div>
     </div>
   </div>
@@ -679,7 +710,13 @@ function validateStep1() {
     else { el.classList.remove('error'); err.textContent = ''; }
   };
   chk('officeCode','oc', /^\d{10}$/,          '半角数字10桁で入力してください');
-  chk('insurerNo', 'ins',/^\d{6}$/,           '半角数字6桁で入力してください');
+  // 保険者名→番号の場合、hidden inputの値をチェック
+  const insCode = document.getElementById('insurerNo').value.trim();
+  const insEl = document.getElementById('insurerName');
+  const insErr = document.getElementById('e-ins');
+  if (!/^\d{6}$/.test(insCode)) { insEl.classList.add('error'); insErr.textContent = '保険者を選択してください'; ok = false; }
+  else { insEl.classList.remove('error'); insErr.textContent = ''; }
+  // chk('insurerNo', 'ins',/^\d{6}$/,           '半角数字6桁で入力してください');
   chk('insuredNo', 'isd',/^(\d{10}|H\d{9})$/, '半角数字10桁（または H＋9桁）で入力してください');
   if (!document.getElementById('planDate').value) { alert('作成年月日を入力してください'); ok = false; }
   return ok;
@@ -739,20 +776,143 @@ function pickHist(k, v) {
   if (k === 'ins') lookupIns(v);
 }
 
-// 保険者マスタ（主要のみ）
+// 保険者マスタ（主要のみ - コード→名称）
 const INS = {
-  '011007':'北海道/札幌市','012021':'北海道/函館市','131016':'東京都/千代田区','131024':'東京都/中央区',
-  '131032':'東京都/港区','131041':'東京都/新宿区','131059':'東京都/文京区','131067':'東京都/台東区',
-  '131075':'東京都/墨田区','131083':'東京都/江東区','131091':'東京都/品川区','131105':'東京都/目黒区',
-  '131113':'東京都/大田区','131121':'東京都/世田谷区','131130':'東京都/渋谷区','131148':'東京都/中野区',
-  '131156':'東京都/杉並区','131164':'東京都/豊島区','131172':'東京都/北区','131181':'東京都/荒川区',
-  '131199':'東京都/板橋区','131202':'東京都/練馬区','131211':'東京都/足立区','131229':'東京都/葛飾区',
-  '131237':'東京都/江戸川区','132126':'東京都/目黒区(特別)','271004':'大阪府/大阪市',
-  '092080':'埼玉県/さいたま市','141003':'神奈川県/横浜市','221007':'静岡県/静岡市',
-  '142115':'神奈川県/川崎市','142123':'神奈川県/相模原市','271012':'大阪府/堺市',
+  '011002':'北海道/札幌市','011007':'北海道/札幌市','012021':'北海道/函館市','012039':'北海道/小樽市',
+  '012047':'北海道/旭川市','012055':'北海道/室蘭市','012063':'北海道/釧路市','012071':'北海道/帯広市',
+  '012080':'北海道/北見市','012098':'北海道/夕張市','012101':'北海道/岩見沢市',
+  '041009':'宮城県/仙台市','041017':'宮城県/石巻市',
+  '061001':'山形県/山形市',
+  '071001':'福島県/福島市','071009':'福島県/会津若松市','071100':'福島県/いわき市',
+  '081001':'茨城県/水戸市','082015':'茨城県/つくば市',
+  '091001':'栃木県/宇都宮市',
+  '101001':'群馬県/前橋市','101009':'群馬県/高崎市',
+  '111005':'埼玉県/さいたま市','112011':'埼玉県/川越市','112037':'埼玉県/川口市',
+  '112060':'埼玉県/行田市','112078':'埼玉県/秩父市','112086':'埼玉県/所沢市',
+  '112094':'埼玉県/飯能市','112102':'埼玉県/加須市','112110':'埼玉県/本庄市',
+  '112128':'埼玉県/東松山市','112144':'埼玉県/春日部市','112151':'埼玉県/狭山市',
+  '112169':'埼玉県/羽生市','112177':'埼玉県/鴻巣市','112193':'埼玉県/上尾市',
+  '112219':'埼玉県/草加市','112227':'埼玉県/越谷市','112235':'埼玉県/蕨市',
+  '112243':'埼玉県/戸田市','112250':'埼玉県/入間市','112276':'埼玉県/朝霞市',
+  '112284':'埼玉県/志木市','112292':'埼玉県/和光市','112300':'埼玉県/新座市',
+  '112318':'埼玉県/桶川市','112326':'埼玉県/久喜市','112334':'埼玉県/北本市',
+  '112342':'埼玉県/八潮市','112359':'埼玉県/富士見市','112375':'埼玉県/三郷市',
+  '112383':'埼玉県/蓮田市','112391':'埼玉県/坂戸市','112409':'埼玉県/幸手市',
+  '112417':'埼玉県/鶴ヶ島市','112425':'埼玉県/日高市','112433':'埼玉県/吉川市',
+  '112458':'埼玉県/ふじみ野市',
+  '121004':'千葉県/千葉市','122028':'千葉県/銚子市','122036':'千葉県/市川市',
+  '122044':'千葉県/船橋市','122051':'千葉県/館山市','122069':'千葉県/木更津市',
+  '122077':'千葉県/松戸市','122085':'千葉県/野田市','122101':'千葉県/茂原市',
+  '122119':'千葉県/成田市','122127':'千葉県/佐倉市','122135':'千葉県/東金市',
+  '122150':'千葉県/旭市','122168':'千葉県/習志野市','122176':'千葉県/柏市',
+  '122184':'千葉県/勝浦市','122192':'千葉県/市原市','122200':'千葉県/流山市',
+  '122218':'千葉県/八千代市','122226':'千葉県/我孫子市','122234':'千葉県/鴨川市',
+  '122242':'千葉県/鎌ケ谷市','122259':'千葉県/君津市','122267':'千葉県/富津市',
+  '122275':'千葉県/浦安市','122283':'千葉県/四街道市','122291':'千葉県/袖ケ浦市',
+  '122309':'千葉県/八街市','122317':'千葉県/印西市','122341':'千葉県/南房総市',
+  '122358':'千葉県/匝瑳市','122366':'千葉県/香取市','122374':'千葉県/山武市',
+  '122382':'千葉県/いすみ市',
+  '131011':'東京都/千代田区','131029':'東京都/中央区','131037':'東京都/港区',
+  '131045':'東京都/新宿区','131052':'東京都/文京区','131060':'東京都/台東区',
+  '131078':'東京都/墨田区','131086':'東京都/江東区','131094':'東京都/品川区',
+  '131102':'東京都/目黒区','131110':'東京都/大田区','131128':'東京都/世田谷区',
+  '131136':'東京都/渋谷区','131144':'東京都/中野区','131151':'東京都/杉並区',
+  '131169':'東京都/豊島区','131177':'東京都/北区','131185':'東京都/荒川区',
+  '131193':'東京都/板橋区','131201':'東京都/練馬区','131219':'東京都/足立区',
+  '131227':'東京都/葛飾区','131235':'東京都/江戸川区',
+  '132019':'東京都/八王子市','132027':'東京都/立川市','132035':'東京都/武蔵野市',
+  '132043':'東京都/三鷹市','132050':'東京都/青梅市','132068':'東京都/府中市',
+  '132076':'東京都/昭島市','132084':'東京都/調布市','132092':'東京都/町田市',
+  '132100':'東京都/小金井市','132118':'東京都/小平市','132126':'東京都/日野市',
+  '132134':'東京都/東村山市','132142':'東京都/国分寺市','132159':'東京都/国立市',
+  '132183':'東京都/福生市','132191':'東京都/狛江市','132209':'東京都/東大和市',
+  '132217':'東京都/清瀬市','132225':'東京都/東久留米市','132233':'東京都/武蔵村山市',
+  '132241':'東京都/多摩市','132258':'東京都/稲城市','132274':'東京都/羽村市',
+  '132282':'東京都/あきる野市','132290':'東京都/西東京市',
+  '133033':'東京都/瑞穂町','133058':'東京都/日の出町','133074':'東京都/檜原村',
+  '133082':'東京都/奥多摩町','133611':'東京都/大島町','133629':'東京都/利島村',
+  '133637':'東京都/新島村','133645':'東京都/神津島村','133819':'東京都/三宅村',
+  '133827':'東京都/御蔵島村','134015':'東京都/八丈町','134023':'東京都/青ヶ島村',
+  '134213':'東京都/小笠原村',
+  '141002':'神奈川県/横浜市','141309':'神奈川県/川崎市','141507':'神奈川県/相模原市',
+  '142018':'神奈川県/横須賀市','142034':'神奈川県/平塚市','142042':'神奈川県/鎌倉市',
+  '142059':'神奈川県/藤沢市','142067':'神奈川県/小田原市','142075':'神奈川県/茅ヶ崎市',
+  '142083':'神奈川県/逗子市','142109':'神奈川県/三浦市','142117':'神奈川県/秦野市',
+  '142125':'神奈川県/厚木市','142133':'神奈川県/大和市','142141':'神奈川県/伊勢原市',
+  '142158':'神奈川県/海老名市','142166':'神奈川県/座間市','142174':'神奈川県/南足柄市',
+  '142182':'神奈川県/綾瀬市',
+  '151009':'新潟県/新潟市','151106':'新潟県/長岡市',
+  '171001':'石川県/金沢市',
+  '201006':'長野県/長野市','201103':'長野県/松本市',
+  '211002':'岐阜県/岐阜市',
+  '221007':'静岡県/静岡市','221104':'静岡県/浜松市',
+  '231002':'愛知県/名古屋市','231100':'愛知県/豊橋市','231207':'愛知県/岡崎市','231509':'愛知県/豊田市',
+  '241008':'三重県/津市','241105':'三重県/四日市市',
+  '251003':'滋賀県/大津市',
+  '261009':'京都府/京都市',
+  '271004':'大阪府/大阪市','271012':'大阪府/堺市','271101':'大阪府/岸和田市','271209':'大阪府/豊中市',
+  '271306':'大阪府/池田市','271403':'大阪府/吹田市','271500':'大阪府/泉大津市','271608':'大阪府/高槻市',
+  '271705':'大阪府/貝塚市','271802':'大阪府/守口市','271900':'大阪府/枚方市','272000':'大阪府/茨木市',
+  '272108':'大阪府/八尾市','272205':'大阪府/泉佐野市','272302':'大阪府/富田林市',
+  '272400':'大阪府/寝屋川市','272507':'大阪府/河内長野市','272604':'大阪府/松原市',
+  '272701':'大阪府/大東市','272809':'大阪府/和泉市','272906':'大阪府/箕面市',
+  '281000':'兵庫県/神戸市','282014':'兵庫県/姫路市','282022':'兵庫県/尼崎市',
+  '282031':'兵庫県/明石市','282049':'兵庫県/西宮市','282057':'兵庫県/芦屋市',
+  '282065':'兵庫県/伊丹市','282073':'兵庫県/豊岡市','282081':'兵庫県/加古川市',
+  '282090':'兵庫県/宝塚市',
+  '291005':'奈良県/奈良市',
+  '301000':'和歌山県/和歌山市',
+  '331001':'岡山県/岡山市','331109':'岡山県/倉敷市',
+  '341002':'広島県/広島市','342020':'広島県/呉市','342038':'広島県/福山市',
+  '401005':'福岡県/福岡市','401307':'福岡県/北九州市','401609':'福岡県/久留米市',
+  '431001':'熊本県/熊本市',
+  '462012':'鹿児島県/鹿児島市',
+  '471003':'沖縄県/那覇市',
 };
+
+// 保険者名から番号を検索するための逆引きマップ
+const INS_REV = {};
+Object.entries(INS).forEach(([code, name]) => { INS_REV[name] = code; });
+
 function lookupIns(code) {
-  document.getElementById('insName').textContent = INS[code] ? '🏛 ' + INS[code] : '';
+  document.getElementById('insName').textContent = INS[code] ? '🏛 ' + INS[code] + '（' + code + '）' : '';
+}
+
+// 保険者名で検索して候補を表示
+function searchInsurer(query) {
+  const ac = document.getElementById('ac-insName');
+  if (!query || query.length < 1) {
+    // 全件表示（最大20件）
+    const all = Object.entries(INS).slice(0, 20).map(([c, n]) => ({ code: c, name: n }));
+    renderInsAC(all);
+    return;
+  }
+  const q = query.toLowerCase();
+  const matches = Object.entries(INS)
+    .filter(([c, n]) => n.toLowerCase().includes(q) || c.includes(q))
+    .slice(0, 15)
+    .map(([c, n]) => ({ code: c, name: n }));
+  renderInsAC(matches);
+}
+
+function renderInsAC(list) {
+  const ac = document.getElementById('ac-insName');
+  if (!list.length) { ac.style.display = 'none'; return; }
+  ac.innerHTML = list.map(x =>
+    `<div class="ac-item" onmousedown="pickInsurer('${x.code}','${x.name}')">${x.name}（${x.code}）</div>`
+  ).join('');
+  ac.style.display = 'block';
+}
+
+function pickInsurer(code, name) {
+  document.getElementById('insurerName').value = name;
+  document.getElementById('insurerNo').value = code;
+  document.getElementById('ac-insName').style.display = 'none';
+  lookupIns(code);
+}
+
+function hideInsList() {
+  setTimeout(() => { document.getElementById('ac-insName').style.display = 'none'; }, 200);
 }
 
 // ════════════════════════════════════════
@@ -784,7 +944,7 @@ function renderGoals() {
         <div class="goal-inner">
           <div class="goal-inner-title">🎯 目標と期間</div>
           <div class="form-group" style="margin-bottom:8px">
-            <label>長期目標</label>
+            <label>長期目標 <button class="copy-period-btn" style="margin-left:8px;background:#e8f5e9;color:#2e7d32;border:1.5px solid #a5d6a7" onclick="copyGoalText(${g.id})">▼ 短期目標にコピー</button></label>
             <input type="text" placeholder="例：つかまるところを活用しながら移動でき転倒なく1年間過ごせる"
               value="${esc(g.longGoal)}" onchange="updGoal(${g.id},'longGoal',this.value)">
           </div>
@@ -816,6 +976,10 @@ function renderGoals() {
 }
 
 function mkSvc(gid, si, s) {
+  // 親の課題を取得して短期期間をデフォルトにする
+  const parentGoal = goals.find(x => x.id === gid);
+  const defImplS = s.implS || (parentGoal ? parentGoal.shortStart : '') || '';
+  const defImplE = s.implE || (parentGoal ? parentGoal.shortEnd : '') || '';
   return `<div class="svc-item">
     <div class="svc-item-head">
       <span class="svc-item-title">サービス内容 ${si+1}</span>
@@ -859,12 +1023,12 @@ function mkSvc(gid, si, s) {
           onchange="updSvc(${gid},${si},'freq',this.value)">
       </div>
       <div class="form-group">
-        <label>実施期間 開始</label>
-        <input type="date" value="${s.implS||''}" onchange="updSvc(${gid},${si},'implS',this.value)">
+        <label>実施期間 開始<span style="font-size:0.72rem;color:#888;margin-left:4px">※短期目標と連動</span></label>
+        <input type="date" value="${defImplS}" onchange="updSvc(${gid},${si},'implS',this.value)">
       </div>
       <div class="form-group">
         <label>実施期間 終了</label>
-        <input type="date" value="${s.implE||''}" onchange="updSvc(${gid},${si},'implE',this.value)">
+        <input type="date" value="${defImplE}" onchange="updSvc(${gid},${si},'implE',this.value)">
       </div>
     </div>
   </div>`;
@@ -873,9 +1037,10 @@ function mkSvc(gid, si, s) {
 function updGoal(id, f, v) { const g = goals.find(x=>x.id===id); if(g) { g[f]=v; saveDraft(); } }
 function updSvc(gid, si, f, v) { const g = goals.find(x=>x.id===gid); if(g&&g.services[si]) { g.services[si][f]=v; saveDraft(); } }
 function rmGoal(id) { if(!confirm('この課題を削除しますか？')) return; goals = goals.filter(g=>g.id!==id); renderGoals(); }
-function addSvc(gid) { const g=goals.find(x=>x.id===gid); if(!g) return; g.services.push({content:'',insurance:'Y',type:'',code:'',name:'',freq:'',implS:'',implE:''}); renderGoals(); }
+function addSvc(gid) { const g=goals.find(x=>x.id===gid); if(!g) return; g.services.push({content:'',insurance:'Y',type:'',code:'',name:'',freq:'',implS:g.shortStart||'',implE:g.shortEnd||''}); renderGoals(); }
 function rmSvc(gid, si) { const g=goals.find(x=>x.id===gid); if(g){g.services.splice(si,1); renderGoals();} }
 function copyPeriod(id) { const g=goals.find(x=>x.id===id); if(!g) return; g.shortStart=g.longStart; g.shortEnd=g.longEnd; renderGoals(); }
+function copyGoalText(id) { const g=goals.find(x=>x.id===id); if(!g) return; g.shortGoal=g.longGoal; renderGoals(); }
 function bulkPeriod() {
   const ls=gv('blS'), le=gv('blE'), ss=gv('bsS'), se=gv('bsE');
   goals.forEach(g => { if(ls)g.longStart=ls; if(le)g.longEnd=le; if(ss)g.shortStart=ss; if(se)g.shortEnd=se; });
@@ -928,43 +1093,273 @@ function updDay(id, day, chk) { const w=weekly.find(x=>x.id===id); if(!w) return
 function rmWeekly(id) { weekly=weekly.filter(w=>w.id!==id); renderWeekly(); }
 
 // ════════════════════════════════════════
-//  AI PARSE
+//  AI PARSE (一括取込)
 // ════════════════════════════════════════
-function parseAI1() {
-  const txt = gv('aiTxt1');
-  const ex = lbl => { const m = txt.match(new RegExp(`【${lbl}】([^【]*)`, 's')); return m ? m[1].trim() : ''; };
-  const honin = ex('本人の意向'), kazoku = ex('家族の意向'), kadai = ex('課題分析結果'), hosin = ex('総合的な援助の方針'), kinkyu = ex('緊急時連絡先');
-  let needs = '';
-  if (honin)  needs += `【本人の意向】\n${honin}\n\n`;
-  if (kazoku) needs += `【家族の意向】\n${kazoku}\n\n`;
-  if (kadai)  needs += `【課題分析結果】\n${kadai}`;
-  if (needs.trim()) document.getElementById('needs').value = needs.trim();
-  let pol = hosin;
-  if (kinkyu) pol += `\n緊急時連絡先:${kinkyu}`;
-  if (pol.trim()) document.getElementById('policy').value = pol.trim();
-  byteCount(document.getElementById('needs'),'bc1',1000);
-  byteCount(document.getElementById('policy'),'bc3',2000);
-  if (needs.trim()||pol.trim()) alert('✅ 取込完了！内容を確認してください。');
-  else alert('⚠️ フォーマットが認識できませんでした。\nAIに【本人の意向】などのラベルを付けて出力するよう指示してください。');
+
+// CSV行をパースする関数（カンマ区切り、ダブルクォート対応）
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i+1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { result.push(current.trim()); current = ''; }
+      else { current += ch; }
+    }
+  }
+  result.push(current.trim());
+  return result;
 }
 
-function parseAI2() {
-  const txt = gv('aiTxt2');
-  const blocks = txt.split(/---課題\d+---/).filter(b => b.trim());
-  if (!blocks.length) { alert('⚠️ 「---課題1---」「---課題2---」のような区切りが見つかりません。'); return; }
-  goals = []; goalId = 1;
-  blocks.forEach(block => {
-    const get = lbl => { const m = block.match(new RegExp(`^${lbl}:\\s*(.+)$`, 'm')); return m ? m[1].trim() : ''; };
-    const g = { id: goalId++, need: get('課題'), longGoal: get('長期目標'), shortGoal: get('短期目標'),
-      longStart:'', longEnd:'', shortStart:'', shortEnd:'', services:[] };
-    const sc = get('サービス内容');
-    if (sc) g.services.push({ content:sc, insurance:get('保険対象')||'Y', type:get('サービス種別'),
-      code:get('事業者コード'), name:get('事業所名'), freq:get('頻度'), implS:'', implE:'' });
-    goals.push(g);
-  });
-  renderGoals();
-  alert(`✅ ${goals.length}件の課題を取り込みました。\n期間（長期・短期）を必ず設定してください。`);
+// メイン：一括パーサー
+function parseAIAll() {
+  const txt = document.getElementById('aiTxtAll').value;
+  if (!txt.trim()) { alert('⚠️ テキストが空です。AIの出力を貼り付けてください。'); return; }
+
+  // セクションに分割
+  const sections = {};
+  let currentSection = '';
+  const lines = txt.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.match(/^基本情報[,\s]*$/)) { currentSection = 'basic'; sections[currentSection] = []; continue; }
+    if (line.match(/^居宅サービス計画書\s*\(\s*1\s*\)[,\s]*$/)) { currentSection = 'table1'; sections[currentSection] = []; continue; }
+    if (line.match(/^居宅サービス計画書\s*\(\s*2\s*\)[,\s]*$/)) { currentSection = 'table2'; sections[currentSection] = []; continue; }
+    if (line.match(/^週間サービス計画書/)) { currentSection = 'table3'; sections[currentSection] = []; continue; }
+    if (line.match(/^週単位以外のサービス[,\s]*$/)) { currentSection = 'nonweekly'; sections[currentSection] = []; continue; }
+    if (currentSection && line) {
+      sections[currentSection] = sections[currentSection] || [];
+      sections[currentSection].push(lines[i]); // 元の行を保持
+    }
+  }
+
+  let results = [];
+
+  // ── 基本情報パース ──
+  if (sections.basic) {
+    const basicData = {};
+    sections.basic.forEach(line => {
+      const cols = parseCSVLine(line);
+      if (cols.length >= 2 && cols[0] !== '項目') {
+        basicData[cols[0].trim()] = cols[1].trim();
+      }
+    });
+    if (basicData['氏名']) { document.getElementById('userName').value = basicData['氏名']; results.push('氏名'); }
+    if (basicData['住所']) {
+      document.getElementById('userAddr1').value = basicData['住所'];
+      results.push('住所');
+    }
+    // 要介護度をセット
+    if (basicData['要介護度']) {
+      const cl = basicData['要介護度'];
+      const careMap = {
+        '事業対象者':'06','要支援1':'12','要支援2':'13',
+        '要介護1':'21','要介護2':'22','要介護3':'23','要介護4':'24','要介護5':'25',
+        '要介護１':'21','要介護２':'22','要介護３':'23','要介護４':'24','要介護５':'25'
+      };
+      const code = careMap[cl];
+      if (code) { document.getElementById('careLevel').value = code; results.push('要介護度'); }
+    }
+  }
+
+  // ── 1表パース ──
+  if (sections.table1) {
+    const t1Data = {};
+    sections.table1.forEach(line => {
+      const cols = parseCSVLine(line);
+      if (cols.length >= 2 && cols[0] !== '項目') {
+        t1Data[cols[0].trim()] = cols[1].trim();
+      }
+    });
+
+    let needs = '';
+    if (t1Data['本人の意向']) needs += `【本人の意向】\n${t1Data['本人の意向']}\n\n`;
+    if (t1Data['家族の意向']) needs += `【家族の意向】\n${t1Data['家族の意向']}\n\n`;
+    if (t1Data['課題分析結果']) needs += `【課題分析結果】\n${t1Data['課題分析結果']}`;
+    if (needs.trim()) { document.getElementById('needs').value = needs.trim(); results.push('意向・課題分析'); }
+
+    const policy = t1Data['総合的援助方針'] || t1Data['総合的な援助の方針'] || t1Data['総合的な援助方針'] || '';
+    if (policy) { document.getElementById('policy').value = policy; results.push('援助方針'); }
+
+    byteCount(document.getElementById('needs'), 'bc1', 1000);
+    byteCount(document.getElementById('policy'), 'bc3', 2000);
+  }
+
+  // ── 2表パース（CSV形式）──
+  if (sections.table2) {
+    // ヘッダー行をスキップ
+    const dataLines = sections.table2.filter(line => !line.match(/^ニーズ[,，]/));
+    goals = []; goalId = 1;
+    let currentGoal = null;
+
+    dataLines.forEach(line => {
+      if (!line.trim() || line.replace(/,/g, '').trim() === '') return; // 空行スキップ
+      const cols = parseCSVLine(line);
+      // cols: [ニーズ, 長期目標, 短期目標, サービス内容, 社会資源, 頻度]
+
+      const need = cols[0] || '';
+      const longGoal = cols[1] || '';
+      const shortGoal = cols[2] || '';
+      const svcContent = cols[3] || '';
+      const svcResource = cols[4] || '';
+      const svcFreq = cols[5] || '';
+
+      if (need) {
+        // 新しい課題
+        currentGoal = {
+          id: goalId++,
+          need: need,
+          longGoal: longGoal,
+          shortGoal: shortGoal,
+          longStart: '', longEnd: '', shortStart: '', shortEnd: '',
+          services: []
+        };
+        if (svcContent) {
+          currentGoal.services.push({
+            content: svcContent,
+            insurance: 'Y',
+            type: svcResource,
+            code: '',
+            name: svcResource,
+            freq: svcFreq,
+            implS: '', implE: ''
+          });
+        }
+        goals.push(currentGoal);
+      } else if (currentGoal) {
+        // 同じ課題の追加行
+        // 短期目標が追加される場合がある
+        if (shortGoal && !currentGoal.shortGoal) {
+          currentGoal.shortGoal = shortGoal;
+        } else if (shortGoal && currentGoal.shortGoal) {
+          // 追加の短期目標 → サービスに含める
+        }
+        if (svcContent) {
+          currentGoal.services.push({
+            content: svcContent,
+            insurance: 'Y',
+            type: svcResource,
+            code: '',
+            name: svcResource,
+            freq: svcFreq,
+            implS: '', implE: ''
+          });
+        }
+      }
+    });
+    renderGoals();
+    if (goals.length > 0) results.push(`2表(${goals.length}課題)`);
+  }
+
+  // ── 3表パース（週間スケジュール）──
+  if (sections.table3) {
+    weekly = []; weekId = 1;
+    // ヘッダー行スキップ
+    const dataLines = sections.table3.filter(line => !line.match(/^時間[,，]/));
+    // 日常活動（サービスではないもの）をフィルタリング
+    const dailyActivities = ['起床','就寝','食事','排尿','排便','入浴','着替え','整容','口腔ケア','服薬','散歩','買い物','調理','洗濯','掃除','昼寝','休息','テレビ','外出','帰宅'];
+    const isDailyActivity = txt => dailyActivities.some(a => txt.includes(a));
+    // 30分単位のスケジュールから、サービスのブロックを抽出する
+    const dayNames = ['月','火','水','木','金','土','日'];
+    // time→dayIdx→service のマップ
+    const schedule = []; // [{time, dayIdx, service}]
+
+    dataLines.forEach(line => {
+      const cols = parseCSVLine(line);
+      if (cols.length < 2) return;
+      const timeStr = cols[0]; // "09:00" etc
+      if (!timeStr.match(/^\d{1,2}:\d{2}$/)) return;
+
+      for (let d = 0; d < 7; d++) {
+        const svc = (cols[d + 1] || '').trim();
+        if (svc && !isDailyActivity(svc)) {
+          schedule.push({ time: timeStr, dayIdx: d + 1, service: svc });
+        }
+      }
+      // 主な日常生活上の活動 (col 8) は無視（後で実装可能）
+    });
+
+    // スケジュールをサービス名×曜日でグループ化して、開始・終了時間を求める
+    const svcDayBlocks = {}; // key: "service_dayIdx" => {service, dayIdx, start, end}
+    // 連続ブロックを検出
+    let prevEntries = {}; // dayIdx => {service, startTime}
+    const allTimes = [...new Set(schedule.map(s => s.time))].sort();
+
+    // サービスごとに曜日×時間帯をまとめる
+    const svcMap = {}; // service => Set of dayIdx
+    const svcTimes = {}; // service => {minTime, maxTime} per day
+
+    schedule.forEach(s => {
+      if (!svcMap[s.service]) svcMap[s.service] = new Set();
+      svcMap[s.service].add(s.dayIdx);
+
+      const key = `${s.service}_${s.dayIdx}`;
+      if (!svcTimes[key]) svcTimes[key] = { min: s.time, max: s.time };
+      if (s.time < svcTimes[key].min) svcTimes[key].min = s.time;
+      if (s.time > svcTimes[key].max) svcTimes[key].max = s.time;
+    });
+
+    // weekly行を生成
+    Object.entries(svcMap).forEach(([svc, daySet]) => {
+      // 各曜日の最早・最遅を集計
+      let minTime = '23:59', maxTime = '00:00';
+      daySet.forEach(d => {
+        const key = `${svc}_${d}`;
+        if (svcTimes[key]) {
+          if (svcTimes[key].min < minTime) minTime = svcTimes[key].min;
+          if (svcTimes[key].max > maxTime) maxTime = svcTimes[key].max;
+        }
+      });
+      // 終了時間は最遅の30分後
+      const endH = parseInt(maxTime.split(':')[0]);
+      const endM = parseInt(maxTime.split(':')[1]) + 30;
+      const endTime = `${String(endH + Math.floor(endM / 60)).padStart(2,'0')}:${String(endM % 60).padStart(2,'0')}`;
+
+      weekly.push({
+        id: weekId++,
+        service: svc,
+        days: [...daySet],
+        start: minTime,
+        end: endTime
+      });
+    });
+    renderWeekly();
+    if (weekly.length > 0) results.push(`3表(${weekly.length}サービス)`);
+  }
+
+  // ── 週単位以外のサービス ──
+  if (sections.nonweekly) {
+    const nwLines = sections.nonweekly.filter(line => !line.match(/^サービス名[,，]/));
+    const nwTexts = nwLines.map(line => {
+      const cols = parseCSVLine(line);
+      return cols.filter(c => c).join(':');
+    }).filter(t => t);
+    if (nwTexts.length > 0) {
+      document.getElementById('nonWeekly').value = nwTexts.join('\n');
+      results.push('週単位以外');
+    }
+  }
+
+  // 結果表示
+  if (results.length > 0) {
+    alert(`✅ 一括取込完了！\n\n取込した項目: ${results.join('、')}\n\n各タブで内容を確認し、期間の設定をお願いします。`);
+    // 1表タブに切り替え
+    switchTab('t1', document.querySelector('.tab'));
+  } else {
+    alert('⚠️ フォーマットが認識できませんでした。\n「基本情報,」「居宅サービス計画書(1),」「居宅サービス計画書(2),」のセクションヘッダーを確認してください。');
+  }
 }
+
+// 旧パーサー（互換性のため残す）
+function parseAI1() {}
+function parseAI2() {}
 
 // ════════════════════════════════════════
 //  UTILS
@@ -983,15 +1378,32 @@ function byteCount(el, cid, max) {
 
 function csvEsc(v) {
   const s = String(v==null ? '' : v);
-  return (s.includes(',') || s.includes('"') || s.includes('\n')) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  // Windowsセキュリティ誤検知防止：-/=/+/@/|で始まる値も必ずクォート
+  const needsQuote = s.includes(',') || s.includes('"') || s.includes('\n')
+    || /^[-=+@|]/.test(s);
+  return needsQuote ? '"' + s.replace(/"/g,'""') + '"' : s;
 }
 function rows2csv(rows) {
-  return '\uFEFF' + rows.map(r => r.map(csvEsc).join(',')).join('\r\n');
+  return rows.map(r => r.map(csvEsc).join(',')).join('\r\n');
+}
+// CSV文字列をShift-JIS (CP932) のUint8Arrayに変換
+function toSJIS(csvStr) {
+  if (typeof Encoding === 'undefined') {
+    // ライブラリ未ロード時はUTF-8フォールバック
+    return new TextEncoder().encode(csvStr);
+  }
+  const unicodeArr = Encoding.stringToCode(csvStr);
+  const sjisArr = Encoding.convert(unicodeArr, { to: 'SJIS', from: 'UNICODE' });
+  return new Uint8Array(sjisArr);
 }
 
 // ════════════════════════════════════════
 //  CSV BUILDERS
 // ════════════════════════════════════════
+
+// 改行を除去してCSV1行に収める（取込システムが複数行セルを受け付けないため）
+const stripNL = s => (s || '').replace(/\r?\n/g, ' ').trim();
+
 function csv1() {
   const oc = gv('officeCode');
   const row = [
@@ -1004,9 +1416,9 @@ function csv1() {
     gv('planType'), gv('certStatus'),
     fd(gv('certDate')), fd(gv('certStart')), fd(gv('certEnd')),
     gv('careLevel'),
-    gv('needs'),
-    gv('assessment') || '-',
-    gv('policy'),
+    stripNL(gv('needs')),
+    stripNL(gv('assessment')) || '-',
+    stripNL(gv('policy')),
     '1', '-',   // col 25-26（実データに準拠）
     oc, '1'     // 送信元事業者番号・サービス種類コード
   ];
@@ -1018,21 +1430,21 @@ function csv2() {
   const rows = [];
   goals.forEach((g, gi) => {
     if (g.services.length === 0) {
-      rows.push([...base, gi+1, g.need, gi+1, g.longGoal, g.shortGoal,
+      rows.push([...base, gi+1, stripNL(g.need), gi+1, stripNL(g.longGoal), stripNL(g.shortGoal),
         fp(g.longStart,g.longEnd), fp(g.shortStart,g.shortEnd),
         '', '', 'Y', '', '', '', '', '', gv('officeCode'), '1']);
     } else {
       g.services.forEach((s, si) => {
         rows.push([...base,
           gi+1,
-          si===0 ? g.need : '',
+          si===0 ? stripNL(g.need) : '',
           gi+1,
-          si===0 ? g.longGoal : '',
-          si===0 ? g.shortGoal : '',
+          si===0 ? stripNL(g.longGoal) : '',
+          si===0 ? stripNL(g.shortGoal) : '',
           si===0 ? fp(g.longStart,g.longEnd) : '',
           si===0 ? fp(g.shortStart,g.shortEnd) : '',
-          si+1, s.content, s.insurance||'Y', s.type, s.code, s.name, s.freq,
-          fp(s.implS,s.implE), gv('officeCode'), '1'
+          si+1, stripNL(s.content), s.insurance||'Y', stripNL(s.type), s.code, stripNL(s.name), s.freq,
+          fp(s.implS||g.shortStart, s.implE||g.shortEnd), gv('officeCode'), '1'
         ]);
       });
     }
@@ -1043,11 +1455,11 @@ function csv2() {
 function csv3() {
   const base = ['202407', gv('insurerNo'), gv('insuredNo'), fd(gv('planDate')), fd(gv('latestDate'))];
   const rows = [];
-  const nw = gv('nonWeekly');
+  const nw = stripNL(gv('nonWeekly'));
   let first = true;
   weekly.forEach(w => {
     [...w.days].sort().forEach((day, di) => {
-      rows.push([...base, w.service, day, ft(w.start), ft(w.end),
+      rows.push([...base, stripNL(w.service), day, ft(w.start), ft(w.end),
         '', '', '', di===0&&first ? nw : '']);
       first = false;
     });
@@ -1081,26 +1493,41 @@ function getPrefix() {
   return `_${oc}_${sc}_${oc}_${sc}_${ts}`;
 }
 
-async function downloadZip() {
-  if (typeof JSZip === 'undefined') { alert('JSZipの読み込みに失敗しました。インターネット接続を確認してください。'); return; }
-  const p = getPrefix();
-  const zip = new JSZip();
-  zip.file(`UP1KYO${p}.csv`, csv1());
-  zip.file(`UP2KYO${p}.csv`, csv2());
-  zip.file(`UP3KYO${p}.csv`, csv3());
-  const blob = await zip.generateAsync({type:'blob'});
-  dlBlob(blob, `careplan${p}.zip`);
-  saveHist('oc',  gv('officeCode'));
-  saveHist('ins', gv('insurerNo'));
-  saveHist('isd', gv('insuredNo'));
-  alert('✅ ダウンロードしました！ ZIPを展開して3つのCSVをシステムに取り込んでください。');
+// ── フォルダ選択して直接書き込み（Zoneマーカーなし）──
+async function saveToFolder() {
+  if (!window.showDirectoryPicker) {
+    alert('このブラウザはフォルダ選択に対応していません。\n下の「1表 / 2表 / 3表」ボタンで個別にダウンロードしてください。');
+    return;
+  }
+  try {
+    const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const p = getPrefix();
+    const files = [
+      { name: `UP1KYO${p}.csv`, content: csv1() },
+      { name: `UP2KYO${p}.csv`, content: csv2() },
+      { name: `UP3KYO${p}.csv`, content: csv3() },
+    ];
+    for (const f of files) {
+      const fh = await dirHandle.getFileHandle(f.name, { create: true });
+      const wr = await fh.createWritable();
+      await wr.write(toSJIS(f.content));
+      await wr.close();
+    }
+    saveHist('oc',  gv('officeCode'));
+    saveHist('ins', gv('insurerNo'));
+    saveHist('isd', gv('insuredNo'));
+    alert(`✅ 保存完了！\n\nUP1KYO${p}.csv\nUP2KYO${p}.csv\nUP3KYO${p}.csv\n\n選択したフォルダに3ファイルを保存しました。`);
+  } catch (e) {
+    if (e.name !== 'AbortError') alert('保存エラー: ' + e.message);
+  }
 }
 
+// ── 従来方式（フォールバック）──
 function dlSingle(n) {
   const p = getPrefix();
   const names = {1:`UP1KYO${p}.csv`, 2:`UP2KYO${p}.csv`, 3:`UP3KYO${p}.csv`};
   const data  = {1:csv1(), 2:csv2(), 3:csv3()};
-  dlBlob(new Blob([data[n]], {type:'text/csv;charset=utf-8'}), names[n]);
+  dlBlob(new Blob([toSJIS(data[n])], {type:'text/csv;charset=Shift_JIS'}), names[n]);
 }
 
 function dlBlob(blob, name) {
@@ -1117,7 +1544,7 @@ function dlBlob(blob, name) {
 //  DRAFT SAVE / RESTORE
 // ════════════════════════════════════════
 const FORM_IDS = [
-  'officeCode','serviceCode','insurerNo','insuredNo','planDate','latestDate',
+  'officeCode','serviceCode','insurerNo','insurerName','insuredNo','planDate','latestDate',
   'userName','userZip','userAddr1','userAddr2','planType','certStatus','careLevel',
   'certDate','certStart','certEnd','needs','assessment','policy','nonWeekly'
 ];
@@ -1143,6 +1570,7 @@ function restoreDraft() {
     if (d.goalId) goalId = d.goalId;
     if (d.weekId) weekId = d.weekId;
     if (d.insurerNo) lookupIns(d.insurerNo);
+    if (d.insurerName) document.getElementById('insurerName').value = d.insurerName;
     byteCount(document.getElementById('needs'),      'bc1', 1000);
     byteCount(document.getElementById('assessment'), 'bc2',  500);
     byteCount(document.getElementById('policy'),     'bc3', 2000);
