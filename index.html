@@ -665,6 +665,7 @@ textarea { resize: vertical; }
 // ════════════════════════════════════════
 let goals = [];
 let weekly = [];
+let dailyActMap = {}; // 時間→主な日常生活上の活動
 let goalId = 1, weekId = 1;
 
 // ════════════════════════════════════════
@@ -1581,7 +1582,7 @@ function parseAIAll() {
 
   // ── 3表パース（週間スケジュール）──
   if (sections.table3) {
-    weekly = []; weekId = 1;
+    weekly = []; weekId = 1; dailyActMap = {};
     // ヘッダー行スキップ
     const dataLines = sections.table3.filter(line => !line.match(/^時間[,，]/));
     // 日常活動（サービスではないもの）をフィルタリング
@@ -1604,7 +1605,9 @@ function parseAIAll() {
           schedule.push({ time: timeStr, dayIdx: d + 1, service: svc });
         }
       }
-      // 主な日常生活上の活動 (col 8) は無視（後で実装可能）
+      // 主な日常生活上の活動 (col 8) を収集
+      const act = (cols[8] || '').trim();
+      if (act) dailyActMap[timeStr] = act;
     });
 
     // スケジュールをサービス名×曜日でグループ化して、開始・終了時間を求める
@@ -2163,14 +2166,14 @@ async function generateExcel() {
    ['F3','木曜日'],['G3','金曜日'],['H3','土曜日'],['I3','日曜日'],['J3','主な日常生活上の活動']
   ].forEach(([r,v])=>sc(ws3,r,v,{font:whiteFont,alignment:wrapMid,fill:dkGreen,border:allThin()}));
 
-  // タイムスロット定義
+  // タイムスロット定義（30分刻み）
   const timeSlots = [
-    {period:'深夜', times:['00:00','02:00','04:00']},
-    {period:'早朝', times:['06:00']},
-    {period:'午前', times:['08:00','10:00']},
-    {period:'午後', times:['12:00','14:00','16:00']},
-    {period:'夜間', times:['18:00','20:00']},
-    {period:'深夜', times:['22:00']},
+    {period:'深夜', times:['00:00','00:30','01:00','01:30','02:00','02:30','03:00','03:30','04:00','04:30','05:00','05:30']},
+    {period:'早朝', times:['06:00','06:30','07:00','07:30']},
+    {period:'午前', times:['08:00','08:30','09:00','09:30','10:00','10:30','11:00','11:30']},
+    {period:'午後', times:['12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00','16:30','17:00','17:30']},
+    {period:'夜間', times:['18:00','18:30','19:00','19:30','20:00','20:30','21:00','21:30']},
+    {period:'深夜', times:['22:00','22:30','23:00','23:30']},
   ];
   const allTimes = timeSlots.flatMap(p=>p.times);
   const dayColMap = {1:'C',2:'D',3:'E',4:'F',5:'G',6:'H',7:'I'};
@@ -2183,18 +2186,23 @@ async function generateExcel() {
     const [eH,eM]=w.end.split(':').map(Number);
     const startMin=sH*60+sM, endMin=eH*60+eM;
     allTimes.forEach(t=>{
-      const tMin=parseInt(t)*60;
+      const [th,tm]=t.split(':').map(Number);
+      const tMin=th*60+tm; // 30分刻み対応
       if(tMin>=startMin && tMin<endMin)
         w.days.forEach(d=>grid[t][d].push(w.service));
     });
   });
+
+  // 主な日常生活上の活動：連続同一内容はマージ用にグループ化
+  const actGroups = []; // [{startRow, endRow, text}]
+  let prevActText = null, actGroupStart = 4;
 
   // 行描画
   let r3=4;
   timeSlots.forEach(period=>{
     const periodStartRow=r3;
     period.times.forEach(time=>{
-      ws3.getRow(r3).height=30;
+      ws3.getRow(r3).height=18; // 30分刻みで行数が増えるため高さを調整
       sc(ws3,`B${r3}`,time,{font:bodyFont,alignment:centerMid,border:allThin()});
       for(let d=1;d<=7;d++){
         const col=dayColMap[d];
@@ -2203,6 +2211,12 @@ async function generateExcel() {
         const cell=ws3.getCell(`${col}${r3}`);
         cell.value=val; cell.alignment=wrapMid; cell.border=allThin(); cell.font=bodyFont;
         if(val) cell.fill=gFill('FFE8F5E9');
+      }
+      // 主な日常生活上の活動（J列）
+      const actText = dailyActMap[time] || '';
+      if(actText !== prevActText){
+        if(prevActText !== null) actGroups.push({startRow:actGroupStart, endRow:r3-1, text:prevActText});
+        prevActText = actText; actGroupStart = r3;
       }
       sc(ws3,`J${r3}`,'',{border:allThin(),font:bodyFont});
       r3++;
@@ -2213,6 +2227,19 @@ async function generateExcel() {
       try{ ws3.mergeCells(`A${periodStartRow}:A${periodEndRow}`); }catch(e){}
     sc(ws3,`A${periodStartRow}`,period.period,{
       font:boldFont,alignment:wrapMid,border:allThin(),fill:gFill('FFE8F5E9')
+    });
+  });
+  // 最後のアクティビティグループを追加
+  if(prevActText !== null) actGroups.push({startRow:actGroupStart, endRow:r3-1, text:prevActText});
+
+  // 主な日常生活上の活動をマージして描画
+  actGroups.forEach(g=>{
+    if(g.endRow > g.startRow){
+      try{ ws3.mergeCells(`J${g.startRow}:J${g.endRow}`); }catch(e){}
+    }
+    sc(ws3,`J${g.startRow}`,g.text,{
+      font:bodyFont,alignment:wrapMid,border:allThin(),
+      fill:g.text ? gFill('FFFFF9C4') : undefined
     });
   });
 
